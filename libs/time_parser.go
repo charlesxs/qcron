@@ -23,12 +23,12 @@ type (
 		Second, Minute *TimeTicket
 		Hour, Day, Month, Week *TimeTicket
 		NextExecTime time.Time
-		secondInterval int
+		secondInterval int			// 针对 */n 格式的动态计算标志位
 		minuteInterval int
 		hourInterval int
 		dayInterval int
 		monthInterval int
-		minuteStart, hourStart int
+		minuteStart, hourStart int  // 针对 */n 格式的重置位
 		secondStart, dayStart int
 		monthStart int
 	}
@@ -78,7 +78,8 @@ func TimeParse(express string) (*TaskTime, error) {
 		return nil, err
 	}
 
-	t.ComputeNextExecTime(now)
+	t.NextExecTime = now
+	t.ComputeNextExecTime()
 	return t, nil
 }
 
@@ -372,46 +373,49 @@ func (t *TaskTime) ParseWeek(tsList []string, now time.Time) error  {
 	return nil
 }
 
-func (t *TaskTime) ComputeNextExecTime(now time.Time) {
+func (t *TaskTime) ComputeNextExecTime() {
 	var (
 		second, minute, hour int
 		day, month int
 		reset, dayIncrease bool
 		minuteInc, hourInc, monthInc bool
 	)
-	//now := time.Now()
+
+	// 根据上一次时间来计算下一个时间, 不根据当前时间计算
+	preTime := t.NextExecTime
 	// second
 	if t.secondInterval == 0 && t.Second != nil {
-		t.Second.Cursor++
-		if t.Second.Cursor >= len(t.Second.Ticket) || t.Second.Ticket[t.Second.Cursor] < now.Second() {
+		if t.Second.Cursor >= len(t.Second.Ticket) || t.Second.Ticket[t.Second.Cursor] < preTime.Second() {
 			minuteInc = true
-			t.incMinute(false)
+			t.incMinute()
 			t.Second.Cursor = 0
 		}
 		second = t.Second.Ticket[t.Second.Cursor]
 	} else {
-		second = now.Second() + t.secondInterval
+		second = preTime.Second() + t.secondInterval
 		if t.secondStart > 0 {
 			second = 0
 			t.secondStart = 0
 		}
 		if second >= 60 {
 			minuteInc = true
-			t.incMinute(true)
 			second -= 60
+			if t.incMinute() {
+				second = 0
+			}
 		}
 	}
 
 	// minute
 	if t.minuteInterval == 0 && t.Minute != nil {
-		if t.Minute.Cursor >= len(t.Minute.Ticket) || t.Minute.Ticket[t.Minute.Cursor] < now.Minute() {
+		if t.Minute.Cursor >= len(t.Minute.Ticket) || t.Minute.Ticket[t.Minute.Cursor] < preTime.Minute() {
 			hourInc = true
-			t.incHour(false)
+			t.incHour()
 			t.Minute.Cursor = 0
 		}
 		minute = t.Minute.Ticket[t.Minute.Cursor]
 	} else {
-		minute = now.Minute()
+		minute = preTime.Minute()
 		if t.minuteStart > 0 {
 			minute = 0
 			t.minuteStart = 0
@@ -420,23 +424,24 @@ func (t *TaskTime) ComputeNextExecTime(now time.Time) {
 			minute += t.minuteInterval
 			if minute >= 60 {
 				hourInc = true
-				t.incHour(true)
 				minute -= 60
+				if t.incHour() {
+					minute = 0
+				}
 			}
 		}
 	}
-
 	// hour
 	if t.hourInterval == 0 && t.Hour != nil {
-		if t.Hour.Cursor >= len(t.Hour.Ticket) || t.Hour.Ticket[t.Hour.Cursor] < now.Hour() {
+		if t.Hour.Cursor >= len(t.Hour.Ticket) || t.Hour.Ticket[t.Hour.Cursor] < preTime.Hour() {
 			dayIncrease = true
-			t.incDay(false)
-			t.incWeek(now, false)
+			t.incDay(preTime)
+			t.incWeek(preTime)
 			t.Hour.Cursor = 0
 		}
 		hour = t.Hour.Ticket[t.Hour.Cursor]
 	} else {
-		hour = now.Hour()
+		hour = preTime.Hour()
 		if t.hourStart > 0 {
 			hour = 0
 			t.hourStart = 0
@@ -445,9 +450,12 @@ func (t *TaskTime) ComputeNextExecTime(now time.Time) {
 			hour += t.hourInterval
 			if hour >=  24 {
 				dayIncrease = true
-				t.incDay(true)
-				t.incWeek(now, true)
 				hour -= 24
+
+				// 立即reset
+				if t.incDay(preTime) || t.incWeek(preTime) {
+					hour = 0
+				}
 			}
 		}
 	}
@@ -456,9 +464,9 @@ func (t *TaskTime) ComputeNextExecTime(now time.Time) {
 	if t.dayInterval == 0 {
 		// 获取静态设定的时间，如 1,3,4  3-30 格式
 		if t.Day != nil {
-			if t.Day.Cursor >= len(t.Day.Ticket) || t.Day.Ticket[t.Day.Cursor] < now.Day() {
+			if t.Day.Cursor >= len(t.Day.Ticket) || t.Day.Ticket[t.Day.Cursor] < preTime.Day() {
 				monthInc = true
-				t.incMonth(false)
+				t.incMonth()
 				t.Day.Cursor = 0
 			}
 			day = t.Day.Ticket[t.Day.Cursor]
@@ -468,7 +476,7 @@ func (t *TaskTime) ComputeNextExecTime(now time.Time) {
 				t.Week.Cursor = 0
 			}
 
-			month, day = GetMonthDayFromWeek(t.Week.Ticket[t.Week.Cursor], now)
+			month, day = GetMonthDayFromWeek(t.Week.Ticket[t.Week.Cursor], preTime)
 			// 匹配月份
 			if t.Month != nil {
 				if month != t.Month.Ticket[t.Month.Cursor % len(t.Month.Ticket)] {
@@ -480,7 +488,7 @@ func (t *TaskTime) ComputeNextExecTime(now time.Time) {
 					day = GetFirstWeekDay(t.Month.Ticket[t.Month.Cursor], t.Week.Ticket[t.Week.Cursor])
 				}
 			} else {
-				month = int(now.Month()) + t.monthInterval
+				month = int(preTime.Month()) + t.monthInterval
 				if month > 12 {
 					month -= 12
 					t.resetMonth()
@@ -492,20 +500,20 @@ func (t *TaskTime) ComputeNextExecTime(now time.Time) {
 		}
 	} else {
 		// 动态计算天，处理如 */3, * 格式
-		day = now.Day()
+		day = preTime.Day()
 		if dayIncrease {
-			maxDay := GetMaxDay(int(now.Month()))
-			nextDay := now.Day() + t.dayInterval
+			maxDay := GetMaxDay(int(preTime.Month()))
+			nextDay := preTime.Day() + t.dayInterval
 			// 时间到下个月
 			if nextDay > maxDay {
 				monthInc = true
-				t.incMonth(true)
+				t.incMonth()
 				// 下个月第n天
 				day = nextDay - maxDay
 
 				// 如果下个月不在月份表里, 则置天数为1
 				if t.Month != nil {
-					if int(now.Month()) + 1 != t.Month.Ticket[t.Month.Cursor % len(t.Month.Ticket)] {
+					if int(preTime.Month()) + 1 != t.Month.Ticket[t.Month.Cursor % len(t.Month.Ticket)] {
 						day = 1
 					}
 				} else {
@@ -522,12 +530,12 @@ func (t *TaskTime) ComputeNextExecTime(now time.Time) {
 	// month
 	if t.monthInterval == 0 && t.Month != nil {
 		if t.Month.Cursor >= len(t.Month.Ticket) ||
-			(t.Month.Ticket[t.Month.Cursor] < int(now.Month()) && !reset) {
+			(t.Month.Ticket[t.Month.Cursor] < int(preTime.Month()) && !reset) {
 			t.resetMonth()
 		}
 		month = t.Month.Ticket[t.Month.Cursor]
 	} else {
-		month = int(now.Month())
+		month = int(preTime.Month())
 		if monthInc {
 			month += t.monthInterval
 			if month > 12 {
@@ -537,93 +545,108 @@ func (t *TaskTime) ComputeNextExecTime(now time.Time) {
 		}
 	}
 
+	t.Second.Cursor++
 	t.NextExecTime = time.Date(
-		Year, time.Month(month), day, hour, minute, second, 0, now.Location(),
+		Year, time.Month(month), day, hour, minute, second, 0, preTime.Location(),
 	)
 }
 
-func (t *TaskTime) incMinute(active bool) {
+func (t *TaskTime) incMinute() bool {
 	if t.minuteInterval == 0 && t.Minute != nil {
 		minLen := len(t.Minute.Ticket)
 		t.Minute.Cursor++
 
-		// 高位不连续 则重置低位时间
-		if active &&
-			t.Minute.Ticket[t.Minute.Cursor % minLen] - t.Minute.Ticket[(t.Minute.Cursor-1) % minLen] != 1 {
+		// 高位时间不连续 则重置低位时间
+		diff := t.Minute.Ticket[t.Minute.Cursor % minLen] - t.Minute.Ticket[(t.Minute.Cursor-1) % minLen]
+		if diff != 1 && diff - 1 != -60 {
 			t.resetSecond()
+			return true
 		}
-	} else {
-		if active && t.minuteInterval > 1 {
-			t.resetSecond()
-		}
+		return false
 	}
+	if t.minuteInterval > 1 {
+		t.resetSecond()
+		return true
+	}
+	return false
 }
 
-func (t *TaskTime) incHour(active bool) {
-	if t.hourInterval == 0 && t.Minute != nil {
+func (t *TaskTime) incHour() bool {
+	if t.hourInterval == 0 && t.Hour != nil {
 		hourLen := len(t.Hour.Ticket)
 		t.Hour.Cursor++
 
-		if active &&
-			t.Hour.Ticket[t.Hour.Cursor % hourLen] - t.Hour.Ticket[(t.Hour.Cursor-1) % hourLen] != 1 {
+		diff := t.Hour.Ticket[t.Hour.Cursor % hourLen] - t.Hour.Ticket[(t.Hour.Cursor-1) % hourLen]
+		if diff != 1 && diff - 1 != -24 {
 			t.resetMinute()
+			return true
 		}
-	} else {
-		if active && t.hourInterval > 1 {
-			t.resetMinute()
-		}
+		return false
 	}
-
+	if t.hourInterval > 1 {
+		t.resetMinute()
+		return true
+	}
+	return false
 }
 
-func (t *TaskTime) incDay(active bool) {
+func (t *TaskTime) incDay(now time.Time) bool {
 	if t.dayInterval == 0 && t.Day != nil {
 		t.Day.Cursor++
 		dayLen := len(t.Day.Ticket)
+		diff := t.Day.Ticket[t.Day.Cursor%dayLen]-t.Day.Ticket[(t.Day.Cursor-1)%dayLen]
 
-		if active &&
-			t.Day.Ticket[t.Day.Cursor % dayLen] - t.Day.Ticket[(t.Day.Cursor-1) % dayLen] != 1 {
+		maxDay := GetMaxDay(int(now.Month()))
+		if diff != 1 && diff - 1 != -maxDay {
 			t.resetHour()
+			return true
 		}
-	} else {
-		if active && t.dayInterval > 1 {
-			t.resetHour()
-		}
+		return false
 	}
+
+	if t.dayInterval > 1 {
+		t.resetHour()
+		return true
+	}
+	return false
 }
 
-func (t *TaskTime) incMonth(active bool) {
+func (t *TaskTime) incMonth() bool {
 	if t.monthInterval == 0 && t.Month != nil {
 		t.Month.Cursor++
 		monLen := len(t.Month.Ticket)
-
-		if active &&
-			t.Month.Ticket[t.Month.Cursor % monLen] - t.Month.Ticket[(t.Month.Cursor-1) % monLen] != 1 {
+		diff := t.Month.Ticket[t.Month.Cursor % monLen] - t.Month.Ticket[(t.Month.Cursor-1) % monLen]
+		if diff != 1 && diff - 1 != -12 {
 			t.resetDay()
 			t.resetWeek()
-		}
-	} else {
-		if active && t.monthInterval > 1 {
-			t.resetDay()
-			t.resetWeek()
+			return true
 		}
 	}
+	if t.monthInterval > 1 {
+		t.resetDay()
+		t.resetWeek()
+		return true
+	}
+
+	return false
 }
 
-func (t *TaskTime) incWeek(now time.Time, active bool) {
+func (t *TaskTime) incWeek(now time.Time) bool {
 	if t.Week.Cursor >= len(t.Week.Ticket) {
 		t.Week.Cursor = 0
-		return
+		return false
 	}
 	if t.Week.Ticket[t.Week.Cursor] <= int(now.Weekday()) {
 		t.Week.Cursor++
 		weekLen := len(t.Week.Ticket)
 
-		if active && t.Day == nil &&
+		if t.Day == nil &&
 			t.Week.Ticket[t.Week.Cursor % weekLen] - t.Week.Ticket[(t.Week.Cursor-1) % weekLen] != 1 {
 			t.resetHour()
+			return true
 		}
 	}
+	return false
 }
 
 func (t *TaskTime) resetSecond() {
@@ -636,7 +659,7 @@ func (t *TaskTime) resetSecond() {
 func (t *TaskTime) resetMinute() {
 	t.minuteStart = 1
 	if t.Minute != nil {
-		t.Month.Cursor = 0
+		t.Minute.Cursor = 0
 	}
 }
 
