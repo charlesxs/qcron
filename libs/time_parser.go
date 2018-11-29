@@ -309,7 +309,7 @@ func (t *TaskTime) ParseHour(tsList []string, now time.Time) error  {
 	return nil
 }
 
-func (t *TaskTime)ParseDay(tsList []string, now time.Time) error {
+func (t *TaskTime) ParseDay(tsList []string, now time.Time) error {
 	month := int(now.Month())
 	startTime, currentDay := now, now.Day()
 	if tsList[4] != "*" {
