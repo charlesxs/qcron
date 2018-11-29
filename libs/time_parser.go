@@ -391,6 +391,9 @@ func (t *TaskTime) ComputeNextExecTime() {
 			t.Second.Cursor = 0
 		}
 		second = t.Second.Ticket[t.Second.Cursor]
+
+		//
+		t.Second.Cursor++
 	} else {
 		second = preTime.Second() + t.secondInterval
 		if t.secondStart > 0 {
@@ -545,7 +548,6 @@ func (t *TaskTime) ComputeNextExecTime() {
 		}
 	}
 
-	t.Second.Cursor++
 	t.NextExecTime = time.Date(
 		Year, time.Month(month), day, hour, minute, second, 0, preTime.Location(),
 	)
