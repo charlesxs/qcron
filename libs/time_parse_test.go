@@ -15,8 +15,8 @@ func TestTimeParse(t *testing.T) {
 	//cronStr := "00 1,2,3 */5 * * *"
 	//cronStr := "00 12 */5 3-10 * *"
 	//cronStr := "00,03 12 */5 3,7,10 2,4 *"
-	//cronStr := "00,03 */23 */5 3,7,10 2,4 *"
-	cronStr := "*/23 */23 */5 */12 */6 *"
+	cronStr := "00,03 */23 */5 3,7,10 2,4 *"
+	//cronStr := "*/23 */23 */5 */12 */6 *"
 	//cronStr := "00 12 */5 * 6,7 3-5"
 
 	tt, err := TimeParse(cronStr)

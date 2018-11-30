@@ -558,7 +558,7 @@ func (t *TaskTime) incMinute() bool {
 		minLen := len(t.Minute.Ticket)
 		t.Minute.Cursor++
 
-		// 高位时间不连续 则重置低位时间
+		// 高位时间不连续 则重置低位时间, return true 则立即重置此次的minute值
 		diff := t.Minute.Ticket[t.Minute.Cursor % minLen] - t.Minute.Ticket[(t.Minute.Cursor-1) % minLen]
 		if diff != 1 && diff - 1 != -60 {
 			t.resetSecond()
