@@ -31,7 +31,7 @@ type Votes struct {
 
 type Vote struct {
 	Bill int
-	Node string
+	Tof int
 	CurrentTime int64
 }
 
@@ -63,7 +63,6 @@ func (ndc *NDCenter) Ensure(key string, count int) bool {
 	if count == 0 {
 		VotesContext.VM[key] = new(Vote)
 	}
-
 	if count >= len(ndc.CronConfig.Cron.Nodes) {
 		return false
 	}
@@ -75,10 +74,11 @@ func (ndc *NDCenter) Ensure(key string, count int) bool {
 
 	if node != ndc.CronConfig.Cron.Listen {
 		// ping 对方节点
-		client := http.Client{Timeout: time.Millisecond * 100}
-		resp, err := client.Get(node + "/ping")
+		client := http.Client{Timeout: time.Millisecond * 200}
+		url := fmt.Sprintf("http://%s/ping", node)
+		resp, err := client.Get(url)
 		if err != nil || resp.StatusCode != 200 {
-			log.Println(fmt.Sprintf("ndcener::EnsureNode node %s defunct\n", node))
+			log.Println(fmt.Sprintf("ndcener::Ensure node %s defunct\n", node))
 
 			// 如果对方非存活状态, 则重新hash节点并选举
 			return ndc.Ensure(key, count + 1)
@@ -88,12 +88,17 @@ func (ndc *NDCenter) Ensure(key string, count int) bool {
 
 	// 发起选举
 	m := make(map[string]Vote)
-	m[key] = Vote{Bill: 0, Node: node, CurrentTime: time.Now().Unix()}
+	m[key] = Vote{Bill: 0, Tof: count, CurrentTime: time.Now().Unix()}
 	payload, _ := json.Marshal(m)
 
-	client := http.Client{Timeout: time.Millisecond * 100}
+	client := http.Client{Timeout: time.Millisecond * 200}
 	for _, v := range ndc.CronConfig.Cron.Nodes {
-		resp, err := client.Post(v + "/vote","application/json",
+		if v == ndc.CronConfig.Cron.Listen {
+			continue
+		}
+
+		url := fmt.Sprintf("http://%s/vote", v)
+		resp, err := client.Post(url,"application/json",
 			bytes.NewReader(payload))
 		if err != nil || resp.StatusCode != 200 {
 			log.Println(fmt.Sprintf(
@@ -107,11 +112,10 @@ func (ndc *NDCenter) Ensure(key string, count int) bool {
 				"ndcenter::Ensure read response body error: %s %s\n", node, err))
 			continue
 		}
-		_ := resp.Body.Close()
-
-		vInterface := data.Get("data").Get(key).Interface()
-		if v, ok := vInterface.(Vote); ok {
-			VotesContext.VM[key] = &Vote{v.Bill, v.Node, v.CurrentTime}
+		resp.Body.Close()
+		bill, err := data.Get("data").Get(key).Get("Bill").Int()
+		if err != nil {
+			VotesContext.VM[key] = &Vote{bill, count, time.Now().Unix()}
 		}
 	}
 
@@ -175,22 +179,21 @@ func HandleVote(w http.ResponseWriter, req *http.Request) {
 
 		// result
 		m := make(map[string]Vote)
-		m[k] = Vote{Bill: 0, Node: v.Node, CurrentTime: time.Now().Unix()}
-		payload, _ := json.Marshal(m)
+		m[k] = Vote{Bill: 0, Tof: 0, CurrentTime: time.Now().Unix()}
 
-		if time.Now().Unix() - VotesContext.VM[k].CurrentTime <= 2 {
-			Jsonify(w, "", 200, payload)
+		// 第1轮投票且时间间隔小于2s, 主要防止脑裂情况下, 只响应最先收到的投票请求
+		if v.Tof == 0 && time.Now().Unix() - VotesContext.VM[k].CurrentTime <= 2 {
+			Jsonify(w, "", 200, m)
 			return
 		}
 
 		VotesContext.VM[k].Bill = v.Bill + 1
-		VotesContext.VM[k].Node = v.Node
+		VotesContext.VM[k].Tof = v.Tof
 		VotesContext.VM[k].CurrentTime = v.CurrentTime
 
 		// 收到后将票数+1 并返回给发起方
-		m[k] = Vote{Bill: 0, Node: v.Node, CurrentTime: time.Now().Unix()}
-		payload, _ = json.Marshal(m)
-		Jsonify(w, "", 200, payload)
+		m[k] = Vote{Bill: 0, Tof: v.Tof, CurrentTime: time.Now().Unix()}
+		Jsonify(w, "", 200, m)
 	}
 }
 
@@ -204,6 +207,7 @@ func Jsonify(w http.ResponseWriter, msg string, code int, data interface{}) {
 		log.Println(fmt.Sprintf("ndcenter::Jsonify error: %d %s %v", code, msg, data))
 		return
 	}
+
 	_, err = fmt.Fprint(w, string(rdata))
 	if err != nil {
 		log.Println(fmt.Sprintf("ndcenter::Jsonify write error: %s", err))

@@ -52,7 +52,6 @@ func Run(configPath string)  {
 					}()
 				}
 			}
-
 			time.Sleep(time.Millisecond * 500)
 		}
 

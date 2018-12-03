@@ -1,33 +1,24 @@
 package ndcenter
 
 import (
-	"encoding/json"
 	"fmt"
+	"qcron/config"
+	"qcron/libs/hash"
 	"testing"
 )
 
-func TestNDCenter_Run(t *testing.T) {
-	//m := make(map[string]interface{})
-	//n := make([]string, 3)
-	//n[0] = "xxx"
-	//m["name"] = "xs.xiao"
-	//m["age"] = 12
-	//m["data"] = n
-	//d, _ := json.Marshal(m)
-	//fmt.Println(string(d))
+func TestNDCenter_Ensure(t *testing.T) {
+	c, err := config.NewConfig("/Users/charles/shells/go/src/qcron/config/config.toml")
+	if err != nil {
+		fmt.Println(err)
+		return
+	}
 
-	//v := Vote{Bill: 1}
-	//d, _ := json.Marshal(v)
-	//fmt.Println(string(d))
+	ndc := &NDCenter{
+		CronConfig: c,
+		Ch: hash.NewConsistentHash(c.Cron.Nodes, 100),
+	}
 
-	m := make(map[string]Vote)
-	m["name"] = Vote{Bill: 1, Node: "xxxx"}
-	s, _ := json.Marshal(m)
-	fmt.Println(string(s))
-
-
-	n := make(map[string]Vote)
-	err := json.Unmarshal(s, &n)
-	fmt.Println(n["name"], err)
+	go ndc.ServerRun()
+	fmt.Println(ndc.Ensure("MyTask1", 0))
 }
-
