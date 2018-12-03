@@ -35,8 +35,8 @@ func NewTask(timeExpress, taskId string,
 }
 
 func (t *Task) Run() error {
-	err := t.Command(t.Arguments...)
 	t.TaskTime.ComputeNextExecTime()
+	err := t.Command(t.Arguments...)
 	return err
 }
 
