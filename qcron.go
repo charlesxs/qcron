@@ -31,8 +31,10 @@ func Run(configPath string)  {
 	// ndc server run
 	go NDC.ServerRun()
 
-	// TODO: init cluster
+	// init cluster
+	NDC.Init()
 
+	// run
 	go func() {
 		for {
 			now := time.Now().Unix()

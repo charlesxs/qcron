@@ -81,5 +81,10 @@ func (tm *TManager) UnRegister(taskId string) error {
 	return nil
 }
 
+func UpdateTasks()  {
+	// TODO 更新所有task 的 next execute time
+
+}
+
 // 单例
 var Manager = NewTaskManager()
