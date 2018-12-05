@@ -44,6 +44,9 @@ func (ndc *NDCenter) Init() {
 		data[t.TaskID] = t.TaskTime.NextExecTime
 	}
 
+	// write self
+	libs.InfoCache.WriteCache(data)
+
 	payload, err := json.Marshal(data)
 	if err != nil {
 		log.Printf("ndcenter::Init init failed, error: %s\n", err)
@@ -51,6 +54,10 @@ func (ndc *NDCenter) Init() {
 	}
 	client := http.Client{Timeout: 300}
 	for _, node := range ndc.CronConfig.Cron.Nodes {
+		if node == ndc.CronConfig.Cron.Listen {
+			continue
+		}
+
 		url := fmt.Sprintf("http://%s/sync", node)
 		resp, err := client.Post(url, "application/json", bytes.NewReader(payload))
 		if err != nil || resp.StatusCode != 200 {
@@ -58,20 +65,47 @@ func (ndc *NDCenter) Init() {
 				"payload: %s\n", url, string(payload))
 			continue
 		}
+
+		m := make(map[string]interface{})
+		respData, err := ioutil.ReadAll(resp.Body)
+		if err != nil {
+			log.Printf("ndcenter::Init response error from node: %s, error: %s, respData: %v\n",
+				node, err, respData)
+			continue
+		}
+		err = resp.Body.Close()
+		if err != nil {
+			log.Printf("ndcenter::Init close response body error: %s\n", err)
+			continue
+		}
+
+		err = json.Unmarshal(respData, &m)
+		if err != nil {
+			log.Printf("ndcenter::Init bad response body, err: %s, respData: %v\n", err, respData)
+			continue
+		}
+
+		if taskTimes, ok := m["data"].(map[string]time.Time); ok {
+			libs.InfoCache.WriteCache(taskTimes)
+		} else {
+			log.Printf("ndcenter::Init parse response error, data: %v", m)
+		}
 	}
 
 	var ok bool
-	L: for i := 0; i < 60; i++ {
-		for _, v := range libs.InfoCache.Cache {
-			if v != nil && len(v) >= len(ndc.CronConfig.Cron.Nodes) {
+	for i := 0; i < 60; i++ {
+		libs.InfoCache.ForEach(func(k string, v []time.Time) bool {
+			if v != nil && len(v) >= len(ndc.CronConfig.Cron.Nodes) / 2 {
 				ok = true
-				break L
+				return false
 			}
-		}
+			return true
+		})
 
 		time.Sleep(time.Second * 1)
 	}
 
+	task.UpdateTasks()
 	if ok {
 		log.Println("ndcenter::Init init cluster ok")
 		return
@@ -156,11 +190,17 @@ func (ndc *NDCenter) Ensure(key string, count int) bool {
 				"ndcenter::Ensure read response body error: %s %s\n", node, err)
 			continue
 		}
-		resp.Body.Close()
+		err = resp.Body.Close()
+		if err != nil {
+			log.Printf("ndcenter::Ensure close reponse body error: %s\n", err)
+		}
+
 		bill, err := data.Get("data").Get(key).Get("Bill").Int()
 		if err != nil {
-			VotesContext.VM[key] = &Vote{bill, count, time.Now().Unix()}
+			log.Printf("ndcenter::Ensure response body error: %s, body: %v", err, data)
 		}
+
+		VotesContext.VM[key] = &Vote{bill, count, time.Now().Unix()}
 	}
 
 	// 自投1票
@@ -271,31 +311,29 @@ func HandleSyncInfo(w http.ResponseWriter, req *http.Request) {
 		return
 	}
 
-	libs.InfoCache.Lock()
-	for k, v := range postData {
-		if _, ok := libs.InfoCache.Cache[k]; !ok {
-			libs.InfoCache.Cache[k] = make([]time.Time, 0, 3)
-		}
-
-		libs.InfoCache.Cache[k] = append(libs.InfoCache.Cache[k], v)
-	}
-	libs.InfoCache.Unlock()
-
+	libs.InfoCache.WriteCache(postData)
 	task.UpdateTasks()
-	Jsonify(w, "success", 200, nil)
+
+	m := make(map[string]time.Time)
+	for _, t := range task.Manager.Tasks {
+		m[t.TaskID] = t.TaskTime.NextExecTime
+	}
+
+	Jsonify(w, "success", 200, m)
 }
 
-func Jsonify(w http.ResponseWriter, msg string, code int, data interface{}) {
+func Jsonify(w http.ResponseWriter, msg string, statusCode int, data interface{}) {
 	resp := make(map[string]interface{})
-	resp["code"] = code
+	resp["code"] = statusCode
 	resp["message"] = msg
 	resp["data"] = data
 	rdata, err := json.Marshal(resp)
 	if err != nil {
-		log.Printf("ndcenter::Jsonify error: %d %s %v\n", code, msg, data)
+		log.Printf("ndcenter::Jsonify error: %d %s %v\n", statusCode, msg, data)
 		return
 	}
 
+	w.WriteHeader(statusCode)
 	_, err = fmt.Fprint(w, string(rdata))
 	if err != nil {
 		log.Printf("ndcenter::Jsonify write error: %s\n", err)

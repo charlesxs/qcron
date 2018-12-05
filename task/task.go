@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"qcron/libs"
+	"time"
 )
 
 type Task struct {
@@ -82,9 +83,39 @@ func (tm *TManager) UnRegister(taskId string) error {
 }
 
 func UpdateTasks()  {
-	// TODO 更新所有task 的 next execute time
+	// 更新所有task 的 next execute time
+	libs.InfoCache.Lock()
+	defer libs.InfoCache.Unlock()
+	for i := range Manager.Tasks {
+		times, ok := libs.InfoCache.Get(Manager.Tasks[i].TaskID)
+		if !ok {
+			continue
+		}
 
+		maxTime := GetMax(times)
+		Manager.Tasks[i].TaskTime.NextExecTime = maxTime
+	}
+
+	// clean old cache
+	libs.InfoCache.CleanCache()
 }
+
+func GetMax(times []time.Time) time.Time {
+	var (
+		max int64
+		index int
+	)
+
+	for i, v := range times {
+		timestamp := v.Unix()
+		if timestamp > max {
+			max = timestamp
+			index = i
+		}
+	}
+	return times[index]
+}
+
 
 // 单例
 var Manager = NewTaskManager()
