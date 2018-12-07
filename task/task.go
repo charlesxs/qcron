@@ -84,8 +84,6 @@ func (tm *TManager) UnRegister(taskId string) error {
 
 func UpdateTasks()  {
 	// 更新所有task 的 next execute time
-	libs.InfoCache.Lock()
-	defer libs.InfoCache.Unlock()
 	for i := range Manager.Tasks {
 		times, ok := libs.InfoCache.Get(Manager.Tasks[i].TaskID)
 		if !ok {
@@ -95,7 +93,6 @@ func UpdateTasks()  {
 		maxTime := GetMax(times)
 		Manager.Tasks[i].TaskTime.NextExecTime = maxTime
 	}
-
 	// clean old cache
 	libs.InfoCache.CleanCache()
 }

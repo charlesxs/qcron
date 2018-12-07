@@ -20,6 +20,7 @@ func TestNDCenter_Ensure(t *testing.T) {
 	}
 
 	go ndc.ServerRun()
+	ndc.Init()
 	fmt.Println(ndc.Ensure("MyTask1", 0))
 
 }

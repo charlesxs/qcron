@@ -1,7 +1,6 @@
 package libs
 
 import (
-	"fmt"
 	"sync"
 	"time"
 )
@@ -84,7 +83,6 @@ func (c *TimeCache) ClearAll() {
 }
 
 func (c *TimeCache) ForEach(fn func(k string, v []time.Time) bool)  {
-	fmt.Println(c.cm)
 	for k, v := range c.cm {
 		if ok := fn(k, v); !ok {
 			break
