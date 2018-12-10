@@ -17,7 +17,7 @@ func (c *TimeCache) WriteCache(m map[string]time.Time) {
 	defer c.Unlock()
 	for k, v := range m {
 		if _, ok := c.cm[k]; !ok {
-			c.cm[k] = make([]time.Time, 0, 3)
+			c.cm[k] = make([]time.Time, 0, 6)
 		}
 
 		c.cm[k] = append(c.cm[k], v)
@@ -85,7 +85,7 @@ func (c *TimeCache) ClearAll() {
 func (c *TimeCache) ForEach(fn func(k string, v []time.Time) bool)  {
 	for k, v := range c.cm {
 		if ok := fn(k, v); !ok {
-			break
+			return
 		}
 	}
 }

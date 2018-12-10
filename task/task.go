@@ -3,6 +3,7 @@ package task
 import (
 	"errors"
 	"fmt"
+	"log"
 	"qcron/libs"
 	"time"
 )
@@ -27,7 +28,7 @@ func NewTask(timeExpress, taskId string,
 		Description: description,
 	}
 
-	tTime, err := libs.TimeParse(timeExpress)
+	tTime, err := libs.TimeParse(timeExpress, time.Now())
 	if err != nil {
 		return nil, err
 	}
@@ -91,7 +92,12 @@ func UpdateTasks()  {
 		}
 
 		maxTime := GetMax(times)
-		Manager.Tasks[i].TaskTime.NextExecTime = maxTime
+		newTaskTime, err := libs.TimeParse(Manager.Tasks[i].TimeExpress, maxTime)
+		if err != nil {
+			log.Printf("update task: %s error, %s", Manager.Tasks[i].TaskID, err)
+		}
+		Manager.Tasks[i].TaskTime = newTaskTime
+
 	}
 	// clean old cache
 	libs.InfoCache.CleanCache()

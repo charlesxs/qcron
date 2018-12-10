@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"log"
 	"qcron/config"
+	"qcron/libs"
 	"qcron/libs/hash"
 	"qcron/ndcenter"
 	"qcron/task"
@@ -11,8 +12,8 @@ import (
 )
 
 var (
-	Config *config.CronConfig
-	NDC *ndcenter.NDCenter
+	conf *config.CronConfig
+	ndc *ndcenter.NDCenter
 )
 
 
@@ -22,17 +23,17 @@ func Run(configPath string)  {
 		log.Fatal(fmt.Sprintf("config init error: %s\n", err))
 	}
 
-	Config = c
-	NDC = &ndcenter.NDCenter{
-		CronConfig: Config,
-		Ch: hash.NewConsistentHash(Config.Cron.Nodes, 100),
+	conf = c
+	ndc = &ndcenter.NDCenter{
+		CronConfig: conf,
+		Ch: hash.NewConsistentHash(conf.Cron.Nodes, 100),
 	}
 
 	// ndc server run
-	go NDC.ServerRun()
+	go ndc.ServerRun()
 
 	// init cluster
-	NDC.Init()
+	ndc.Init()
 
 	// run
 	go func() {
@@ -41,8 +42,17 @@ func Run(configPath string)  {
 			for _, t := range task.Manager.Tasks {
 				if t.TaskTime.NextExecTime.Unix() <= now {
 					// 确认节点
-					if ! NDC.Ensure(t.TaskID, 0) {
+					if ok, count := ndc.Ensure(t.TaskID, 0); !ok {
 						continue
+					} else {
+						if count > 0 {
+							newTime, err := libs.TimeParse(t.TimeExpress, time.Now())
+							if err != nil {
+								fmt.Println("qcron::Run time parse error: ", err)
+								continue
+							}
+							t.TaskTime = newTime
+						}
 					}
 
 					// 执行

@@ -3,6 +3,7 @@ package ndcenter
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"github.com/bitly/go-simplejson"
 	"io/ioutil"
@@ -52,7 +53,7 @@ func (ndc *NDCenter) Init() {
 		log.Printf("ndcenter::Init init failed, error: %s\n", err)
 		return
 	}
-	client := http.Client{Timeout: 300}
+	client := http.Client{}
 	for _, node := range ndc.CronConfig.Cron.Nodes {
 		if node == ndc.CronConfig.Cron.Listen {
 			continue
@@ -61,8 +62,7 @@ func (ndc *NDCenter) Init() {
 		url := fmt.Sprintf("http://%s/sync", node)
 		resp, err := client.Post(url, "application/json", bytes.NewReader(payload))
 		if err != nil || resp.StatusCode != 200 {
-			log.Printf("ndcenter::Init node sync failed, url: %s, " +
-				"payload: %s\n", url, string(payload))
+			log.Printf("ndcenter::Init %s", err)
 			continue
 		}
 
@@ -85,7 +85,16 @@ func (ndc *NDCenter) Init() {
 			continue
 		}
 
-		if taskTimes, ok := m["data"].(map[string]time.Time); ok {
+		taskTimes := make(map[string]time.Time)
+		if d, ok := m["data"].(map[string]interface{}); ok {
+			for k, v := range d {
+				if t, err := parseTime(v); err != nil {
+					log.Printf("ndcenter::Init bad response body, error: %s", err)
+				} else {
+					taskTimes[k] = t
+				}
+			}
+
 			libs.InfoCache.WriteCache(taskTimes)
 		} else {
 			log.Printf("ndcenter::Init parse response error, data: %v", m)
@@ -95,13 +104,15 @@ func (ndc *NDCenter) Init() {
 	var ok bool
 	for i := 0; i < 60; i++ {
 		libs.InfoCache.ForEach(func(k string, v []time.Time) bool {
-			if v != nil && len(v) >= len(ndc.CronConfig.Cron.Nodes) / 2 {
+			if v != nil && len(v) >= len(ndc.CronConfig.Cron.Nodes){
 				ok = true
 				return false
 			}
 			return true
 		})
-
+		if ok {
+			break
+		}
 		time.Sleep(time.Second * 1)
 	}
 
@@ -114,7 +125,7 @@ func (ndc *NDCenter) Init() {
 	log.Println("ndcenter::Init init cluster failed")
 }
 
-func (ndc *NDCenter) NextNode(key string) (string, error) {
+func (ndc *NDCenter) GetNode(key string, next bool) (string, error) {
 	var index int
 	var length = len(ndc.CronConfig.Cron.Nodes)
 	nodes, err := ndc.Ch.GetNodes(key, length)
@@ -131,23 +142,34 @@ func (ndc *NDCenter) NextNode(key string) (string, error) {
 		return nodes[index], nil
 	}
 
-	index = (ndc.currentNode[key] + 1) % length
-	ndc.currentNode[key] = index
-	return nodes[index], nil
+	if next {
+		index = (ndc.currentNode[key] + 1) % length
+		ndc.currentNode[key] = index
+	}
+
+	return nodes[ndc.currentNode[key]], nil
 }
 
-func (ndc *NDCenter) Ensure(key string, count int) bool {
+func (ndc *NDCenter) Ensure(key string, count int) (bool, int) {
+	var (
+		node string
+		err error
+		next bool
+	)
 	// 清空上次选举结果
 	if count == 0 {
 		VotesContext.VM[key] = new(Vote)
 	}
 	if count >= len(ndc.CronConfig.Cron.Nodes) {
-		return false
+		return false, count
 	}
 
-	node, err := ndc.NextNode(key)
+	if count > 0 {
+		next = true
+	}
+	node, err = ndc.GetNode(key, next)
 	if err != nil {
-		return false
+		return false, count
 	}
 
 	if node != ndc.CronConfig.Cron.Listen {
@@ -161,7 +183,7 @@ func (ndc *NDCenter) Ensure(key string, count int) bool {
 			// 如果对方非存活状态, 则重新hash节点并选举
 			return ndc.Ensure(key, count + 1)
 		}
-		return false
+		return false, count
 	}
 
 	// 发起选举
@@ -200,7 +222,9 @@ func (ndc *NDCenter) Ensure(key string, count int) bool {
 			log.Printf("ndcenter::Ensure response body error: %s, body: %v", err, data)
 		}
 
+		VotesContext.Lock()
 		VotesContext.VM[key] = &Vote{bill, count, time.Now().Unix()}
+		VotesContext.Unlock()
 	}
 
 	// 自投1票
@@ -209,7 +233,7 @@ func (ndc *NDCenter) Ensure(key string, count int) bool {
 	VotesContext.VM[key].Bill++
 	if VotesContext.VM[key].Bill > len(ndc.CronConfig.Cron.Nodes) / 2 {
 		// 选举成功，返回true 执行
-		return true
+		return true, count
 	}
 
 	// 选举失败重新hash 并选举
@@ -284,7 +308,7 @@ func HandleVote(w http.ResponseWriter, req *http.Request) {
 		VotesContext.VM[k].CurrentTime = v.CurrentTime
 
 		// 收到后将票数+1 并返回给发起方
-		m[k] = Vote{Bill: 0, Tof: v.Tof, CurrentTime: time.Now().Unix()}
+		m[k] = Vote{Bill: v.Bill + 1, Tof: v.Tof, CurrentTime: time.Now().Unix()}
 		Jsonify(w, "", 200, m)
 	}
 }
@@ -340,5 +364,10 @@ func Jsonify(w http.ResponseWriter, msg string, statusCode int, data interface{}
 	}
 }
 
-
+func parseTime(v interface{}) (time.Time, error) {
+	if t, ok := v.(string); ok {
+		return time.Parse(time.RFC3339Nano, t)
+	}
+	return time.Time{}, errors.New("expect time string")
+}
 

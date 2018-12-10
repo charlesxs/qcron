@@ -39,14 +39,14 @@ type (
 	}
 )
 
-func TimeParse(express string) (*TaskTime, error) {
+func TimeParse(express string, now time.Time) (*TaskTime, error) {
 	re := regexp.MustCompile("\\s+")
 	tsList := re.Split(express, -1)
 	if len(tsList) != 6 {
 		return nil, errors.New(fmt.Sprintf("illegal express: %s", express))
 	}
 
-	now, t := time.Now(), new(TaskTime)
+	t :=  new(TaskTime)
 
 	err := t.ParseSecond(tsList, now)
 	if err != nil {
