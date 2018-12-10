@@ -19,14 +19,14 @@ func TestTimeParse(t *testing.T) {
 	//cronStr := "*/23 */23 */5 */12 */6 *"
 	//cronStr := "00 12 */5 * 6,7 3-5"
 
-	tt, err := TimeParse(cronStr)
+	tt, err := TimeParse(cronStr, time.Now())
 	if err != nil {
 		fmt.Println(err)
 		return
 	}
 	fmt.Println("now:", time.Now())
 	fmt.Println("Start: ", tt.secondStart, tt.minuteStart, tt.hourStart, tt.dayStart, tt.monthStart)
-	fmt.Println("Interval: ", tt.secondInterval, tt.minuteInterval, tt.hourInterval, tt.dayInterval, tt.monthInterval)
+	fmt.Println("Interval: ", tt.SecondInterval, tt.MinuteInterval, tt.HourInterval, tt.DayInterval, tt.MonthInterval)
 	fmt.Println(tt.Second, tt.Minute, tt.Hour, tt.Day, tt.Month, tt.Week)
 	fmt.Println(tt.NextExecTime)
 	for i := 0; i < 500; i++ {

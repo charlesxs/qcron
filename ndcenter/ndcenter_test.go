@@ -2,8 +2,8 @@ package ndcenter
 
 import (
 	"fmt"
-	"qcron/config"
-	"qcron/libs/hash"
+	"github.com/charlesxs/qcron/config"
+	"github.com/charlesxs/qcron/libs/hash"
 	"testing"
 )
 

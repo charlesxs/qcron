@@ -1,8 +1,8 @@
 package hash
 
 import (
-	"testing"
 	"fmt"
+	"testing"
 )
 
 func TestConsistentHash(t *testing.T) {

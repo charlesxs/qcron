@@ -2,12 +2,12 @@ package qcron
 
 import (
 	"fmt"
+	"github.com/charlesxs/qcron/config"
+	"github.com/charlesxs/qcron/libs"
+	"github.com/charlesxs/qcron/libs/hash"
+	"github.com/charlesxs/qcron/ndcenter"
+	"github.com/charlesxs/qcron/task"
 	"log"
-	"qcron/config"
-	"qcron/libs"
-	"qcron/libs/hash"
-	"qcron/ndcenter"
-	"qcron/task"
 	"time"
 )
 
