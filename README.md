@@ -8,16 +8,16 @@ package main
 
 import (
 	"flag"
-	"fmt"
-	"github.com/charlesxs/qcron"
-	"github.com/charlesxs/qcron/task"
+	"log"
+	"qcron"
+	"qcron/task"
 	"time"
 )
 
 var c = flag.String("c", "", "config path")
 
 func EchoTask(args ...interface{}) error  {
-	fmt.Printf("%s Hello world\n", time.Now())
+	log.Println("\033[32mI'm working hard\033[0m")
 	return nil
 }
 
@@ -32,17 +32,17 @@ func main()  {
 		make([]interface{}, 0),
 		"Task Demo",
 		)
-
 	if err != nil {
-		fmt.Println(err)
+		log.Fatal(err)
 	}
 
 	err = task.Manager.Register(t)
 	if err != nil {
-		fmt.Println(err)
+		log.Fatal(err)
 	}
 	qcron.Run(*c)
 
+	// your main program
 	for {
 		time.Sleep(time.Minute * 1)
 	}
