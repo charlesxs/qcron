@@ -1,6 +1,6 @@
 # qcron
 
-## 测试demo
+**测试demo**
 
 ```
 $ cat demo.go 
@@ -64,7 +64,7 @@ listen = "127.0.0.1:8010"
 nodes = ["127.0.0.1:8008", "127.0.0.1:8009", "127.0.0.1:8010"]
 
 
-$  go run qcron_demo.go -c /path/to/c1.toml
-$  go run qcron_demo.go -c /path/to/c2.toml
-$  go run qcron_demo.go -c /path/to/c3.toml
+$  go run demo.go -c /path/to/c1.toml
+$  go run demo.go -c /path/to/c2.toml
+$  go run demo.go -c /path/to/c3.toml
 ```
