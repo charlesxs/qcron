@@ -9,7 +9,7 @@ package main
 import (
 	"flag"
 	"fmt"
-	"github.com/charlesxs/qcron/"
+	"github.com/charlesxs/qcron"
 	"github.com/charlesxs/qcron/task"
 	"time"
 )
