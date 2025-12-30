@@ -8,9 +8,9 @@ package main
 
 import (
 	"flag"
+	"github.com/charlesxs/qcron"
+	"github.com/charlesxs/qcron/task"
 	"log"
-	"qcron"
-	"qcron/task"
 	"time"
 )
 

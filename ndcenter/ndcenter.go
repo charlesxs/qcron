@@ -17,37 +17,49 @@ import (
 	"time"
 )
 
-type NDCenter struct {
-	CronConfig *config.CronConfig
-	Ch *hash.ConsistentHash
-	currentNode map[string]int
-}
+type (
+	NDCenter struct {
+		CronConfig *config.CronConfig
+		Ch *hash.ConsistentHash
+	}
 
-var VotesContext = Votes{
-	VM: make(map[string]*Vote),
-}
+	hashCache struct {
+		nodes []string
+		cursor int
+	}
 
-type Votes struct {
+	Vote struct {
+		Bill int
+		Tof int 		// 第几轮投票
+		CurrentTime int64
+	}
+)
+
+var HashCache = struct {
+	sync.Mutex
+	m map[string]*hashCache
+}{m: make(map[string]*hashCache)}
+
+var VotesContext = struct {
 	sync.Mutex
 	VM map[string]*Vote
-}
+}{VM: make(map[string]*Vote)}
 
-type Vote struct {
-	Bill int
-	Tof int
-	CurrentTime int64
-}
 
 func (ndc *NDCenter) Init() {
 	log.Println("ndcenter::Init start init cluster")
-	data := make(map[string]time.Time)
+	data := map[string]interface{}{
+		"node": ndc.CronConfig.Cron.Listen,
+	}
+
+	tasks := make(map[string]time.Time)
 	for _, t := range task.Manager.Tasks {
-		data[t.TaskID] = t.TaskTime.NextExecTime
+		tasks[t.TaskID] = t.TaskTime.NextExecTime
 	}
 
 	// write self
-	libs.InfoCache.WriteCache(data)
-
+	libs.InfoCache.WriteCache(tasks)
+	data["tasks"] = tasks
 	payload, err := json.Marshal(data)
 	if err != nil {
 		log.Printf("ndcenter::Init init failed, error: %s\n", err)
@@ -127,27 +139,28 @@ func (ndc *NDCenter) Init() {
 
 func (ndc *NDCenter) GetNode(key string, next bool) (string, error) {
 	var index int
-	var length = len(ndc.CronConfig.Cron.Nodes)
-	nodes, err := ndc.Ch.GetNodes(key, length)
-	if err != nil {
-		return "", err
-	}
 
-	if ndc.currentNode == nil {
-		ndc.currentNode = make(map[string]int)
-	}
+	HashCache.Lock()
+	defer HashCache.Unlock()
+	if _, ok := HashCache.m[key]; !ok {
+		nodes, err := ndc.Ch.GetNodes(key, len(ndc.CronConfig.Cron.Nodes))
+		if err != nil {
+			return "", err
+		}
 
-	if _, ok := ndc.currentNode[key]; !ok {
-		ndc.currentNode[key] = index
-		return nodes[index], nil
+		HashCache.m[key] = &hashCache{
+			nodes: nodes,
+			cursor: index,
+		}
 	}
 
 	if next {
-		index = (ndc.currentNode[key] + 1) % length
-		ndc.currentNode[key] = index
+		index = (HashCache.m[key].cursor + 1) % len(HashCache.m[key].nodes)
+		HashCache.m[key].cursor = index
 	}
 
-	return nodes[ndc.currentNode[key]], nil
+	return HashCache.m[key].nodes[HashCache.m[key].cursor], nil
+
 }
 
 func (ndc *NDCenter) Ensure(key string, count int) (bool, int) {
@@ -167,6 +180,7 @@ func (ndc *NDCenter) Ensure(key string, count int) (bool, int) {
 	if count > 0 {
 		next = true
 	}
+
 	node, err = ndc.GetNode(key, next)
 	if err != nil {
 		return false, count
@@ -191,7 +205,7 @@ func (ndc *NDCenter) Ensure(key string, count int) (bool, int) {
 	m[key] = Vote{Bill: 0, Tof: count, CurrentTime: time.Now().Unix()}
 	payload, _ := json.Marshal(m)
 
-	client := http.Client{Timeout: time.Millisecond * 200}
+	client := http.Client{}
 	for _, v := range ndc.CronConfig.Cron.Nodes {
 		if v == ndc.CronConfig.Cron.Listen {
 			continue
@@ -223,7 +237,9 @@ func (ndc *NDCenter) Ensure(key string, count int) (bool, int) {
 		}
 
 		VotesContext.Lock()
-		VotesContext.VM[key] = &Vote{bill, count, time.Now().Unix()}
+		VotesContext.VM[key].Bill += bill
+		VotesContext.VM[key].Tof = count
+		VotesContext.VM[key].CurrentTime = time.Now().Unix()
 		VotesContext.Unlock()
 	}
 
@@ -326,7 +342,7 @@ func HandleSyncInfo(w http.ResponseWriter, req *http.Request) {
 		}
 	}()
 
-	postData := make(map[string]time.Time)
+	postData := make(map[string]interface{})
 	err = json.Unmarshal(data, &postData)
 	if err != nil {
 		msg := fmt.Sprintf("ndcenter::HandleSyncInfo request body error: %s\n", err)
@@ -335,8 +351,31 @@ func HandleSyncInfo(w http.ResponseWriter, req *http.Request) {
 		return
 	}
 
-	libs.InfoCache.WriteCache(postData)
+	node := postData["node"].(string)
+	tasks := make(map[string]time.Time)
+	if d, ok := postData["tasks"].(map[string]interface{}); ok {
+		for k, v := range d {
+			if t, err := parseTime(v); err != nil {
+				log.Printf("ndcenter::HandleSyncInfo bad request body: %v, error: %s", postData, err)
+			} else {
+				tasks[k] = t
+			}
+		}
+	}
+	libs.InfoCache.WriteCache(tasks)
 	task.UpdateTasks()
+
+	// 当node 重新上线后复位所有此node上的任务
+	HashCache.Lock()
+	for _, v := range HashCache.m {
+		for i := 0; i < v.cursor; i++ {
+			if v.nodes[i] == node {
+				v.cursor = i
+				break
+			}
+		}
+	}
+	HashCache.Unlock()
 
 	m := make(map[string]time.Time)
 	for _, t := range task.Manager.Tasks {

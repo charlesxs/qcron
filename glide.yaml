@@ -1,0 +1,9 @@
+package: github.com/charlesxs/qcron
+import:
+- package: github.com/BurntSushi/toml
+  version: ^0.3.1
+- package: github.com/bitly/go-simplejson
+  version: ^0.5.0
+- package: github.com/golang-collections/collections
+  subpackages:
+  - set
